@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wm-orchestrator"
+version = "0.1.0"
+description = "World-model orchestrator client for the MiniGrid gRPC API"
+requires-python = ">=3.10"
+dependencies = [
+    # gRPC client side only — the server deps (gymnasium, minigrid,
+    # pygame-ce, Pillow) live in the Minigrid-grpc-server project.
+    "grpcio",
+    "grpcio-tools",
+    "protobuf",
+    "numpy",
+    "pyyaml",
+    # The gRPC stubs and obs codec, fetched from the API project's repo.
+    # NOTE: pip installs this from GitHub, so the commit that defines the
+    # proto/stubs must be pushed to origin. Pin a commit hash or tag for
+    # reproducibility, e.g.:
+    #   "grpc-api @ git+https://github.com/Jesshuan/Minigrid-grpc-server.git@<sha>"
+    "grpc-api @ git+https://github.com/Jesshuan/Minigrid-grpc-server.git",
+]
+
+[[project.authors]]
+name = "Jesshuan"
+
+[project.scripts]
+wm-async-client = "async_act_client:main"
+wm-act-client = "act_client_example:main"
+
+[tool.setuptools]
+# The project is a flat collection of top-level modules (run as scripts
+# from this directory), not a package — declared one by one here.
+py-modules = [
+    "act_client_example",
+    "async_act_client",
+    "orchestrator_config",
+    "smoke_async_client",
+    "first_test",
+]
