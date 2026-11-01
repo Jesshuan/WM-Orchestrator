@@ -1,0 +1,13 @@
+# Global config for the M-Agent-Orchestra orchestrator.
+# Read once at startup (see orchestrator_config.load_config); keys not
+# listed here fall back to the defaults in orchestrator_config.py.
+
+orchestrator:
+  # Size x of the shared observation queue: only the x most recent
+  # observations (from the agent, the user or a reset) stay in memory.
+  obs_buffer_size: 512
+
+agent:
+  # Think time of the placeholder policy, in seconds. Once a real agent
+  # service replaces the stub, its own latency takes over.
+  think_time: 1
