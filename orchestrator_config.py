@@ -27,6 +27,13 @@ class OrchestratorConfig:
     # Think time of the placeholder policy, in seconds.
     agent_think_time: float = 0.001
 
+    # Server the act client connects to.
+    host: str = "127.0.0.1"
+    port: int = 50051
+
+    # Env plugin to load (env_plugins/<name>.py).
+    env: str = "minigrid"
+
 
 DEFAULTS = OrchestratorConfig()
 
@@ -40,7 +47,12 @@ def load_config(path: str | Path | None = None) -> OrchestratorConfig:
             data = yaml.safe_load(fh) or {}
     orchestrator = data.get("orchestrator") or {}
     agent = data.get("agent") or {}
+    server = data.get("server") or {}
+    env = data.get("env") or {}
     return OrchestratorConfig(
         obs_buffer_size=int(orchestrator.get("obs_buffer_size", DEFAULTS.obs_buffer_size)),
         agent_think_time=float(agent.get("think_time", DEFAULTS.agent_think_time)),
+        host=str(server.get("host", DEFAULTS.host)),
+        port=int(server.get("port", DEFAULTS.port)),
+        env=str(env.get("name", DEFAULTS.env)),
     )

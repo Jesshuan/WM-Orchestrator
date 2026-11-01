@@ -28,15 +28,14 @@ name = "Jesshuan"
 
 [project.scripts]
 wm-async-client = "async_act_client:main"
-wm-act-client = "act_client_example:main"
 
 [tool.setuptools]
 # The project is a flat collection of top-level modules (run as scripts
-# from this directory), not a package — declared one by one here.
+# from this directory), not a package — declared one by one here —
+# plus the plugins package (one file per env).
+packages = ["plugins"]
 py-modules = [
-    "act_client_example",
     "async_act_client",
     "orchestrator_config",
     "smoke_async_client",
-    "first_test",
 ]

@@ -1,6 +1,16 @@
 # Global config for the M-Agent-Orchestra orchestrator.
 # Read once at startup (see orchestrator_config.load_config); keys not
 # listed here fall back to the defaults in orchestrator_config.py.
+# server.host / server.port / env.name can be overridden per run with
+# --host / --port / --env.
+
+server:
+  host: 127.0.0.1
+  port: 50051
+
+env:
+  # Which env plugin async_act_client loads (env_plugins/<name>.py).
+  name: minigrid
 
 orchestrator:
   # Size x of the shared observation queue: only the x most recent

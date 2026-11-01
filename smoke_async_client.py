@@ -3,6 +3,9 @@
 Patches the key reader to feed a scripted sequence:
   'c' -> user takes control, 'w'/' '/'p' -> user steps, 'c' -> agent resumes,
 then lets the agent act for a couple of seconds before cancelling.
+
+--port 50061 (here) overrides server.port from config.yaml; everything
+else (host, env plugin) comes from the yaml defaults.
 """
 
 import asyncio

@@ -14,10 +14,19 @@ user; pressing 'c' again releases control and the agent resumes. Movement
 keys pressed while the agent is in control are simply ignored.
 
 Run from this directory, inside the env that has grpc_api installed:
-    python async_act_client.py [--host HOST] [--port PORT] [--config CONFIG]
+    python async_act_client.py [--host HOST] [--port PORT] [--env ENV]
+                               [--config CONFIG]
     python async_act_client.py --debug
         (--debug prints the full observation payload received per response,
         like grpc_api/act_client.py's debug mode)
+
+The client is env-agnostic: everything env-specific — the transport
+(channel, stub and the Reset/Step requests over the env's own pb2
+protocol), the key mapping, the agent action space, and observation
+unpacking/display — lives in env_plugins/<name>.py, chosen by env.name
+in config.yaml; --host/--port/--env override the yaml for a single run.
+The core loop below only calls plugin.connect/reset/step/close and logs
+plain outcomes, so another env just ships another plugin.
 """
 
 from __future__ import annotations
@@ -33,46 +42,11 @@ from collections import deque
 from dataclasses import dataclass, field
 from enum import Enum, auto
 
-import grpc
-
-from grpc_api import minigrid_api_pb2 as pb2
-from grpc_api import minigrid_api_pb2_grpc as pb2_grpc
-from grpc_api.obs_codec import unpack_obs
-
 from orchestrator_config import OrchestratorConfig, load_config
+from env_plugins import load_plugin
+from env_plugins.base import EnvPlugin
 
 logger = logging.getLogger("async_act_client")
-
-KEYS_HELP = """\
-async client keys:  a/d/w = left/right/forward   space = toggle
-                    p = pickup   o = drop        e/return = done
-                    r = reset    c = hand control agent <-> user
-                    q = quit"""
-
-# What the placeholder agent may pick. The agent has restricted rights:
-# DONE (ending the episode) and resets are the user's alone — the agent
-# can never terminate the game, so DONE stays out of its action space.
-AGENT_ACTIONS: list[int] = [
-    pb2.Action.LEFT,
-    pb2.Action.RIGHT,
-    pb2.Action.FORWARD,
-    pb2.Action.PICKUP,
-    pb2.Action.DROP,
-    pb2.Action.TOGGLE,
-]
-
-# Terminal keys, mirroring manual_control's physical controls.
-KEY_TO_ACTION: dict[str, int] = {
-    "a": pb2.Action.LEFT,
-    "d": pb2.Action.RIGHT,
-    "w": pb2.Action.FORWARD,
-    " ": pb2.Action.TOGGLE,
-    "p": pb2.Action.PICKUP,
-    "o": pb2.Action.DROP,
-    "e": pb2.Action.DONE,
-    # alias of the older manual_control binding, for muscle memory
-    "\r": pb2.Action.DONE,
-}
 
 QUIT_KEYS = ("q", "Q", "\x03", "\x04")  # q, Ctrl-C, Ctrl-D
 
@@ -91,23 +65,6 @@ def _read_key() -> str:
         termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
 
-def _describe_obs(obs_decoded: dict) -> str:
-    """Rebuild the numpy obs and describe it (see obs_codec.unpack_obs)."""
-    
-    image = obs_decoded["image"]
-    line = (
-        f"obs: numpy array shape={image.shape} dtype={image.dtype} "
-        f"values={image.min()}..{image.max()}"
-    )
-    mental = obs_decoded["mental_map"]
-    if mental is not None:
-        line += (
-            f" | mental map: {mental.shape[0]}x{mental.shape[1]} grayscale "
-            f"values={mental.min()}..{mental.max()}"
-        )
-    return line
-
-
 class Mode(Enum):
     """Who is allowed to send Step commands."""
 
@@ -119,7 +76,7 @@ class Mode(Enum):
 class ObsRecord:
     """One observation in the shared queue, tagged with its provenance."""
 
-    obs: dict  # unpack_obs output: image / direction / mission / mental_map
+    obs: dict  # plugin.unpack_obs output; the keys are env-specific
     source: str  # "agent", "user" or "reset"
     reward: float = 0.0
     step_count: int = -1
@@ -144,37 +101,14 @@ class ObsBuffer:
         return list(self._queue)
 
 
-async def agent_act(obs: dict, cfg: OrchestratorConfig) -> int:
+async def agent_act(obs: dict, cfg: OrchestratorConfig, plugin: EnvPlugin) -> int:
     """Placeholder policy — the future agent service plugs in right here.
 
     Thinks for a fixed instant and picks a random action, using the last
     observation it received (`obs`).
     """
     await asyncio.sleep(cfg.agent_think_time)
-    return random.choice(AGENT_ACTIONS)
-
-
-def _print_payload(obs_decoded: dict) -> None:
-    """Print the full unpacked observation payload received over the wire.
-
-    Debug mode only: the image array in full, plus direction/mission, and
-    the mental map as an NxN grid of grayscale values (255 = agent,
-    100 = goal). Same as grpc_api/act_client.py --debug.
-    """
-    image = obs_decoded["image"]
-    print(f"  image: shape={image.shape} dtype={image.dtype}")
-    print("  image values:")
-    for line in str(image).splitlines():
-        print(f"    {line}")
-    if obs_decoded["direction"] is not None:
-        print(f"  direction: {obs_decoded['direction']}")
-    if obs_decoded["mission"]:
-        print(f"  mission: {obs_decoded['mission']!r}")
-    mental = obs_decoded["mental_map"]
-    if mental is not None:
-        print(f"  mental map ({mental.shape[0]}x{mental.shape[1]}):")
-        for row in mental:
-            print("    " + " ".join(f"{v:3d}" for v in row))
+    return random.choice(plugin.agent_actions)
 
 
 def _spawn_key_reader(queue: asyncio.Queue[str]) -> threading.Thread:
@@ -202,12 +136,14 @@ async def run(args: argparse.Namespace) -> int:
         return 1
 
     cfg = load_config(args.config)
+    plugin = load_plugin(args.env if args.env is not None else cfg.env)
+    host = args.host if args.host is not None else cfg.host
+    port = args.port if args.port is not None else cfg.port
     obs_buffer = ObsBuffer(cfg.obs_buffer_size)
     print(f"observation queue keeps the last {cfg.obs_buffer_size} in memory")
-    print(KEYS_HELP)
+    print(plugin.keys_help)
 
-    channel = grpc.aio.insecure_channel(f"{args.host}:{args.port}")
-    stub = pb2_grpc.MinigridEnvStub(channel)
+    await plugin.connect(host, port)
 
     keys: asyncio.Queue[str] = asyncio.Queue()
     _spawn_key_reader(keys)
@@ -229,42 +165,42 @@ async def run(args: argparse.Namespace) -> int:
                 print("agent back in control (c to take over)")
             return True
         if key == "r":
-            response = await stub.Reset(pb2.ResetRequest())
-            obs = unpack_obs(response.observation)
-            obs_buffer.push(ObsRecord(obs=obs, source="reset", step_count=response.step_count))
-            print(f"reset! {_describe_obs(obs)}")
+            outcome = await plugin.reset()
+            obs = outcome.obs
+            obs_buffer.push(ObsRecord(obs=obs, source="reset", step_count=outcome.step_count))
+            print(f"reset! {plugin.describe_obs(obs)}")
             if debug:
-                _print_payload(obs)
+                plugin.print_payload(obs)
             return True
         if mode is Mode.AGENT:
             return True  # movement keys only matter when the user is in control
-        action = KEY_TO_ACTION.get(key)
+        action = plugin.key_to_action.get(key)
         if action is None:
             return True
-        response = await stub.Step(pb2.StepRequest(action=action))
-        obs = unpack_obs(response.observation)
+        outcome = await plugin.step(action)
+        obs = outcome.obs
         obs_buffer.push(
-            ObsRecord(obs=obs, source="user", reward=response.reward, step_count=response.step_count)
+            ObsRecord(obs=obs, source="user", reward=outcome.reward, step_count=outcome.step_count)
         )
         print(
-            f"[user] key={key} action={pb2.Action.Name(action)} "
-            f"reward={response.reward:+.2f} terminated={response.terminated} "
-            f"{_describe_obs(obs)}"
+            f"[user] key={key} action={plugin.action_name(action)} "
+            f"reward={outcome.reward:+.2f} terminated={outcome.terminated} "
+            f"{plugin.describe_obs(obs)}"
         )
         if debug:
             print("observation payload:")
-            _print_payload(obs)
+            plugin.print_payload(obs)
         return True
 
     running = True
     debug = args.debug
     try:
-        response = await stub.Reset(pb2.ResetRequest())
-        obs = unpack_obs(response.observation)
-        obs_buffer.push(ObsRecord(obs=obs, source="reset", step_count=response.step_count))
-        print(f"reset: {_describe_obs(obs)}")
+        outcome = await plugin.reset()
+        obs = outcome.obs
+        obs_buffer.push(ObsRecord(obs=obs, source="reset", step_count=outcome.step_count))
+        print(f"reset: {plugin.describe_obs(obs)}")
         if debug:
-            _print_payload(obs)
+            plugin.print_payload(obs)
 
         while running:
             # First drain everything already pressed (toggles, resets, quit).
@@ -282,35 +218,51 @@ async def run(args: argparse.Namespace) -> int:
 
             # Agent mode: one step, then re-check the keys right away so a
             # 'c' pressed mid-step is honored at most one step late.
-            action = await agent_act(obs, cfg)
-            response = await stub.Step(pb2.StepRequest(action=action))
-            obs = unpack_obs(response.observation)
+            action = await agent_act(obs, cfg, plugin)
+            outcome = await plugin.step(action)
+            obs = outcome.obs
             obs_buffer.push(
                 ObsRecord(
-                    obs=obs, source="agent", reward=response.reward, step_count=response.step_count
+                    obs=obs, source="agent", reward=outcome.reward, step_count=outcome.step_count
                 )
             )
             print(
-                f"[agent] action={pb2.Action.Name(action)} "
-                f"reward={response.reward:+.2f} terminated={response.terminated} "
-                f"{_describe_obs(obs)}"
+                f"[agent] action={plugin.action_name(action)} "
+                f"reward={outcome.reward:+.2f} terminated={outcome.terminated} "
+                f"{plugin.describe_obs(obs)}"
             )
             if debug:
                 print("observation payload:")
-                _print_payload(obs)
+                plugin.print_payload(obs)
 
-    except grpc.aio.AioRpcError as exc:
-        print(f"server error: {exc.code()} {exc.details()}", file=sys.stderr)
+    except plugin.connection_errors as exc:
+        print(f"server error: {plugin.error_message(exc)}", file=sys.stderr)
     finally:
-        await channel.close()
+        await plugin.close()
         print(f"bye — {len(obs_buffer)} observations kept (capacity {cfg.obs_buffer_size})")
     return 0
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--host", type=str, default="127.0.0.1", help="server address")
-    parser.add_argument("--port", type=int, default=50051, help="server port")
+    parser.add_argument(
+        "--host",
+        type=str,
+        default=None,
+        help="server address (default: server.host from config.yaml)",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help="server port (default: server.port from config.yaml)",
+    )
+    parser.add_argument(
+        "--env",
+        type=str,
+        default=None,
+        help="env plugin to load (default: env.name from config.yaml)",
+    )
     parser.add_argument(
         "--config",
         type=str,
