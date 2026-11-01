@@ -39,9 +39,6 @@ from grpc_api import minigrid_api_pb2 as pb2
 from grpc_api import minigrid_api_pb2_grpc as pb2_grpc
 from grpc_api.obs_codec import unpack_obs
 
-# The exact same commands as the manual control, imported as the single
-# source of truth: the key map, the raw-mode key reader and the obs line.
-from act_client_example import KEY_TO_ACTION, _describe_obs, _read_key
 from orchestrator_config import OrchestratorConfig, load_config
 
 logger = logging.getLogger("async_act_client")
@@ -64,7 +61,51 @@ AGENT_ACTIONS: list[int] = [
     pb2.Action.TOGGLE,
 ]
 
+# Terminal keys, mirroring manual_control's physical controls.
+KEY_TO_ACTION: dict[str, int] = {
+    "a": pb2.Action.LEFT,
+    "d": pb2.Action.RIGHT,
+    "w": pb2.Action.FORWARD,
+    " ": pb2.Action.TOGGLE,
+    "p": pb2.Action.PICKUP,
+    "o": pb2.Action.DROP,
+    "e": pb2.Action.DONE,
+    # alias of the older manual_control binding, for muscle memory
+    "\r": pb2.Action.DONE,
+}
+
 QUIT_KEYS = ("q", "Q", "\x03", "\x04")  # q, Ctrl-C, Ctrl-D
+
+
+def _read_key() -> str:
+    """Read one keypress from the terminal in raw mode."""
+    import termios
+    import tty
+
+    fd = sys.stdin.fileno()
+    old = termios.tcgetattr(fd)
+    try:
+        tty.setraw(fd)
+        return sys.stdin.read(1)
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+
+
+def _describe_obs(obs_decoded: dict) -> str:
+    """Rebuild the numpy obs and describe it (see obs_codec.unpack_obs)."""
+    
+    image = obs_decoded["image"]
+    line = (
+        f"obs: numpy array shape={image.shape} dtype={image.dtype} "
+        f"values={image.min()}..{image.max()}"
+    )
+    mental = obs_decoded["mental_map"]
+    if mental is not None:
+        line += (
+            f" | mental map: {mental.shape[0]}x{mental.shape[1]} grayscale "
+            f"values={mental.min()}..{mental.max()}"
+        )
+    return line
 
 
 class Mode(Enum):
