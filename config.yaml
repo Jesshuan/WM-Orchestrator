@@ -17,6 +17,23 @@ orchestrator:
   # observations (from the agent, the user or a reset) stay in memory.
   obs_buffer_size: 512
 
+storage:
+  # Where record batches are written: storage/<mode>.py decides the
+  # medium (filesystem today; e.g. s3 tomorrow), the batching below is
+  # the same for every backend.
+  mode: filesystem
+
+  # Every batch_size records pushed to the obs buffer, one batch of
+  # that size is written to disk; an episode boundary (terminated step
+  # or a reset) flushes the pending records early, so a batch never
+  # spans two episodes. Meant as a subdivision of obs_buffer_size; a
+  # mismatch is warned about, not rejected.
+  batch_size: 64
+
+  # Backend-dependent destination, default <project root>/records. A
+  # relative path resolves against the working directory.
+  # path: /absolute/or/relative/destination
+
 agent:
   # Think time of the placeholder policy, in seconds. Once a real agent
   # service replaces the stub, its own latency takes over.

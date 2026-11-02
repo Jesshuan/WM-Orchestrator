@@ -27,6 +27,14 @@ unpacking/display — lives in env_plugins/<name>.py, chosen by env.name
 in config.yaml; --host/--port/--env override the yaml for a single run.
 The core loop below only calls env_plugin.connect/reset/step/close and logs
 plain outcomes, so another env just ships another plugin.
+
+For later model training, the observations also outlive the process:
+every record pushed to the queue feeds a storage backend as well, which
+writes a batch to disk each time record_batch_size records have
+accumulated — and at every episode boundary, so a batch never spans two
+episodes (storage.* keys in config.yaml; filesystem by default, one
+day-stamped folder of .npz batch files). Backends come from
+storage/<mode>.py, the same plugin shape as env_plugins.
 """
 
 from __future__ import annotations
@@ -37,14 +45,15 @@ import logging
 import random
 import sys
 import threading
-import time
 from collections import deque
-from dataclasses import dataclass, field
 from enum import Enum, auto
 
 from orchestrator_config import OrchestratorConfig, load_config
+from records import ObsRecord
 from env_plugins import load_plugin
 from env_plugins.base import EnvPlugin
+from storage import load_backend
+from storage.base import StorageBackend
 
 logger = logging.getLogger("async_act_client")
 
@@ -72,26 +81,22 @@ class Mode(Enum):
     USER = auto()
 
 
-@dataclass(frozen=True)
-class ObsRecord:
-    """One observation in the shared queue, tagged with its provenance."""
-
-    obs: dict  # plugin.unpack_obs output; the keys are env-specific
-    source: str  # "agent", "user" or "reset"
-    reward: float = 0.0
-    step_count: int = -1
-    timestamp: float = field(default_factory=time.time)
-
-
 class ObsBuffer:
-    """The shared observation queue: a sliding window of the x last obs."""
+    """The shared observation queue: a sliding window of the x last obs.
 
-    def __init__(self, maxlen: int):
+    Each push also feeds ``sink`` (a storage backend) when one is
+    attached, so the records outlive the in-memory window on disk.
+    """
+
+    def __init__(self, maxlen: int, sink: StorageBackend | None = None):
         self._queue: deque[ObsRecord] = deque(maxlen=maxlen)
+        self._sink = sink
 
     def push(self, record: ObsRecord) -> None:
         """Append one observation; the oldest is dropped once x is reached."""
         self._queue.append(record)
+        if self._sink is not None:
+            self._sink.add(record)
 
     def __len__(self) -> int:
         return len(self._queue)
@@ -139,11 +144,24 @@ async def run(args: argparse.Namespace) -> int:
     env_plugin = load_plugin(args.env if args.env is not None else cfg.env)
     host = args.host if args.host is not None else cfg.host
     port = args.port if args.port is not None else cfg.port
-    obs_buffer = ObsBuffer(cfg.obs_buffer_size)
+    storage = load_backend(
+        cfg.storage_mode,
+        batch_size=cfg.record_batch_size,
+        base_path=cfg.records_path,
+    )
+    obs_buffer = ObsBuffer(cfg.obs_buffer_size, sink=storage)
     print(f"observation queue keeps the last {cfg.obs_buffer_size} in memory")
-    print(env_plugin.keys_help)
+    print(storage.describe())
+    if cfg.obs_buffer_size % cfg.record_batch_size:
+        print(
+            f"warning: batch_size {cfg.record_batch_size} does not divide "
+            f"obs_buffer_size {cfg.obs_buffer_size} — batches still flush "
+            f"every {cfg.record_batch_size} records, independent of the window",
+            file=sys.stderr,
+        )
 
     await env_plugin.connect(host, port)
+    storage.open()
 
     keys: asyncio.Queue[str] = asyncio.Queue()
     _spawn_key_reader(keys)
@@ -180,7 +198,13 @@ async def run(args: argparse.Namespace) -> int:
         outcome = await env_plugin.step(action)
         obs = outcome.obs
         obs_buffer.push(
-            ObsRecord(obs=obs, source="user", reward=outcome.reward, step_count=outcome.step_count)
+            ObsRecord(
+                obs=obs,
+                source="user",
+                reward=outcome.reward,
+                terminated=outcome.terminated,
+                step_count=outcome.step_count,
+            )
         )
         print(
             f"[user] key={key} action={env_plugin.action_name(action)} "
@@ -195,7 +219,7 @@ async def run(args: argparse.Namespace) -> int:
     running = True
     debug = args.debug
     try:
-        outcome = await plugin.reset()
+        outcome = await env_plugin.reset()
         obs = outcome.obs
         obs_buffer.push(ObsRecord(obs=obs, source="reset", step_count=outcome.step_count))
         print(f"reset: {env_plugin.describe_obs(obs)}")
@@ -223,7 +247,11 @@ async def run(args: argparse.Namespace) -> int:
             obs = outcome.obs
             obs_buffer.push(
                 ObsRecord(
-                    obs=obs, source="agent", reward=outcome.reward, step_count=outcome.step_count
+                    obs=obs,
+                    source="agent",
+                    reward=outcome.reward,
+                    terminated=outcome.terminated,
+                    step_count=outcome.step_count,
                 )
             )
             print(
@@ -239,7 +267,11 @@ async def run(args: argparse.Namespace) -> int:
         print(f"server error: {env_plugin.error_message(exc)}", file=sys.stderr)
     finally:
         await env_plugin.close()
-        print(f"bye — {len(obs_buffer)} observations kept (capacity {cfg.obs_buffer_size})")
+        batches = storage.close()
+        print(
+            f"bye — {len(obs_buffer)} observations kept (capacity {cfg.obs_buffer_size}), "
+            f"{storage.record_count} written to {cfg.records_path} in {batches} batch(es)"
+        )
     return 0
 
 

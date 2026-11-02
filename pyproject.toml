@@ -32,10 +32,11 @@ wm-async-client = "async_act_client:main"
 [tool.setuptools]
 # The project is a flat collection of top-level modules (run as scripts
 # from this directory), not a package — declared one by one here —
-# plus the plugins package (one file per env).
-packages = ["env_plugins"]
+# plus the plugin packages (one file per env / storage backend).
+packages = ["env_plugins", "storage"]
 py-modules = [
     "async_act_client",
     "orchestrator_config",
+    "records",
     "smoke_async_client",
 ]

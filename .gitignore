@@ -1,1 +1,4 @@
 __pycache__
+
+# Recorded batches written by the storage backend (filesystem mode).
+records/
