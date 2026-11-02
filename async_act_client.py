@@ -25,7 +25,7 @@ The client is env-agnostic: everything env-specific — the transport
 protocol), the key mapping, the agent action space, and observation
 unpacking/display — lives in env_plugins/<name>.py, chosen by env.name
 in config.yaml; --host/--port/--env override the yaml for a single run.
-The core loop below only calls plugin.connect/reset/step/close and logs
+The core loop below only calls env_plugin.connect/reset/step/close and logs
 plain outcomes, so another env just ships another plugin.
 """
 
@@ -101,14 +101,14 @@ class ObsBuffer:
         return list(self._queue)
 
 
-async def agent_act(obs: dict, cfg: OrchestratorConfig, plugin: EnvPlugin) -> int:
+async def agent_act(obs: dict, cfg: OrchestratorConfig, env_plugin: EnvPlugin) -> int:
     """Placeholder policy — the future agent service plugs in right here.
 
     Thinks for a fixed instant and picks a random action, using the last
     observation it received (`obs`).
     """
     await asyncio.sleep(cfg.agent_think_time)
-    return random.choice(plugin.agent_actions)
+    return random.choice(env_plugin.agent_actions)
 
 
 def _spawn_key_reader(queue: asyncio.Queue[str]) -> threading.Thread:
@@ -136,14 +136,14 @@ async def run(args: argparse.Namespace) -> int:
         return 1
 
     cfg = load_config(args.config)
-    plugin = load_plugin(args.env if args.env is not None else cfg.env)
+    env_plugin = load_plugin(args.env if args.env is not None else cfg.env)
     host = args.host if args.host is not None else cfg.host
     port = args.port if args.port is not None else cfg.port
     obs_buffer = ObsBuffer(cfg.obs_buffer_size)
     print(f"observation queue keeps the last {cfg.obs_buffer_size} in memory")
-    print(plugin.keys_help)
+    print(env_plugin.keys_help)
 
-    await plugin.connect(host, port)
+    await env_plugin.connect(host, port)
 
     keys: asyncio.Queue[str] = asyncio.Queue()
     _spawn_key_reader(keys)
@@ -165,31 +165,31 @@ async def run(args: argparse.Namespace) -> int:
                 print("agent back in control (c to take over)")
             return True
         if key == "r":
-            outcome = await plugin.reset()
+            outcome = await env_plugin.reset()
             obs = outcome.obs
             obs_buffer.push(ObsRecord(obs=obs, source="reset", step_count=outcome.step_count))
-            print(f"reset! {plugin.describe_obs(obs)}")
+            print(f"reset! {env_plugin.describe_obs(obs)}")
             if debug:
-                plugin.print_payload(obs)
+                env_plugin.print_payload(obs)
             return True
         if mode is Mode.AGENT:
             return True  # movement keys only matter when the user is in control
-        action = plugin.key_to_action.get(key)
+        action = env_plugin.key_to_action.get(key)
         if action is None:
             return True
-        outcome = await plugin.step(action)
+        outcome = await env_plugin.step(action)
         obs = outcome.obs
         obs_buffer.push(
             ObsRecord(obs=obs, source="user", reward=outcome.reward, step_count=outcome.step_count)
         )
         print(
-            f"[user] key={key} action={plugin.action_name(action)} "
+            f"[user] key={key} action={env_plugin.action_name(action)} "
             f"reward={outcome.reward:+.2f} terminated={outcome.terminated} "
-            f"{plugin.describe_obs(obs)}"
+            f"{env_plugin.describe_obs(obs)}"
         )
         if debug:
             print("observation payload:")
-            plugin.print_payload(obs)
+            env_plugin.print_payload(obs)
         return True
 
     running = True
@@ -198,9 +198,9 @@ async def run(args: argparse.Namespace) -> int:
         outcome = await plugin.reset()
         obs = outcome.obs
         obs_buffer.push(ObsRecord(obs=obs, source="reset", step_count=outcome.step_count))
-        print(f"reset: {plugin.describe_obs(obs)}")
+        print(f"reset: {env_plugin.describe_obs(obs)}")
         if debug:
-            plugin.print_payload(obs)
+            env_plugin.print_payload(obs)
 
         while running:
             # First drain everything already pressed (toggles, resets, quit).
@@ -218,8 +218,8 @@ async def run(args: argparse.Namespace) -> int:
 
             # Agent mode: one step, then re-check the keys right away so a
             # 'c' pressed mid-step is honored at most one step late.
-            action = await agent_act(obs, cfg, plugin)
-            outcome = await plugin.step(action)
+            action = await agent_act(obs, cfg, env_plugin)
+            outcome = await env_plugin.step(action)
             obs = outcome.obs
             obs_buffer.push(
                 ObsRecord(
@@ -227,18 +227,18 @@ async def run(args: argparse.Namespace) -> int:
                 )
             )
             print(
-                f"[agent] action={plugin.action_name(action)} "
+                f"[agent] action={env_plugin.action_name(action)} "
                 f"reward={outcome.reward:+.2f} terminated={outcome.terminated} "
-                f"{plugin.describe_obs(obs)}"
+                f"{env_plugin.describe_obs(obs)}"
             )
             if debug:
                 print("observation payload:")
-                plugin.print_payload(obs)
+                env_plugin.print_payload(obs)
 
-    except plugin.connection_errors as exc:
-        print(f"server error: {plugin.error_message(exc)}", file=sys.stderr)
+    except env_plugin.connection_errors as exc:
+        print(f"server error: {env_plugin.error_message(exc)}", file=sys.stderr)
     finally:
-        await plugin.close()
+        await env_plugin.close()
         print(f"bye — {len(obs_buffer)} observations kept (capacity {cfg.obs_buffer_size})")
     return 0
 
