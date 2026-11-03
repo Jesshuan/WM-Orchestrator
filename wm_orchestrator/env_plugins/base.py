@@ -1,9 +1,9 @@
-"""The per-env plugin contract for async_act_client.
+"""The per-env plugin contract for the act client (wm_orchestrator.client).
 
 An EnvPlugin owns everything that varies by env: the transport (channel,
 stub and the Reset/Step requests over its own pb2 protocol), the
 on-screen key mapping, the agent's action space, and observation
-unpacking/display. The core loop in async_act_client only ever calls
+unpacking/display. The core loop in wm_orchestrator.client only ever calls
 connect/reset/step/close and reads the generic outcomes below — it knows
 nothing about any particular proto.
 """

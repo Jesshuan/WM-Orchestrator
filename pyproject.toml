@@ -27,16 +27,14 @@ dependencies = [
 name = "Jesshuan"
 
 [project.scripts]
-wm-async-client = "async_act_client:main"
+wm-async-client = "wm_orchestrator.client:main"
 
 [tool.setuptools]
-# The project is a flat collection of top-level modules (run as scripts
-# from this directory), not a package — declared one by one here —
-# plus the plugin packages (one file per env / storage backend).
-packages = ["env_plugins", "storage"]
-py-modules = [
-    "async_act_client",
-    "orchestrator_config",
-    "records",
-    "smoke_async_client",
+# The wm_orchestrator package holds the act client, config and records
+# modules plus the plugin packages (one file per env / storage backend);
+# scripts/ is thin launchers, not part of the distribution.
+packages = [
+    "wm_orchestrator",
+    "wm_orchestrator.env_plugins",
+    "wm_orchestrator.storage",
 ]

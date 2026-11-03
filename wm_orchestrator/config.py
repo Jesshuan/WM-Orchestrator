@@ -13,11 +13,13 @@ from pathlib import Path
 
 import yaml
 
-DEFAULT_CONFIG_PATH = Path(__file__).with_name("config.yaml")
+# The yaml config and the records output live at the project root (the
+# package's parent), anchored to the repo, not the working directory.
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_CONFIG_PATH = _PROJECT_ROOT / "config.yaml"
 
-# Default destination for record batches: <project root>/records —
-# anchored to the repo, not the working directory.
-DEFAULT_RECORDS_PATH = str(Path(__file__).with_name("records"))
+# Default destination for record batches: <project root>/records.
+DEFAULT_RECORDS_PATH = str(_PROJECT_ROOT / "records")
 
 
 @dataclass(frozen=True)

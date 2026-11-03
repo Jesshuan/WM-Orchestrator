@@ -1,4 +1,5 @@
 __pycache__
+*.egg-info/
 
 # Recorded batches written by the storage backend (filesystem mode).
 records/

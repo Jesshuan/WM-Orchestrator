@@ -1,4 +1,4 @@
-"""Storage backend registry: storage/<name>.py must define get_backend()."""
+"""Storage backend registry: wm_orchestrator/storage/<name>.py must define get_backend()."""
 
 from __future__ import annotations
 
@@ -6,8 +6,8 @@ import importlib
 
 
 def load_backend(name: str, batch_size: int, base_path: str):
-    """Import storage.<name>, return its configured StorageBackend."""
-    module_name = f"storage.{name}"
+    """Import the storage backend ``name``, return its configured StorageBackend."""
+    module_name = f"wm_orchestrator.storage.{name}"
     try:
         module = importlib.import_module(module_name)
     except ImportError as exc:

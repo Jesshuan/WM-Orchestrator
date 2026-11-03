@@ -1,6 +1,6 @@
 # Global config for the M-Agent-Orchestra orchestrator.
-# Read once at startup (see orchestrator_config.load_config); keys not
-# listed here fall back to the defaults in orchestrator_config.py.
+# Read once at startup (see wm_orchestrator.config.load_config); keys not
+# listed here fall back to the defaults in wm_orchestrator/config.py.
 # server.host / server.port / env.name can be overridden per run with
 # --host / --port / --env.
 
@@ -9,7 +9,7 @@ server:
   port: 50051
 
 env:
-  # Which env plugin async_act_client loads (env_plugins/<name>.py).
+  # Which env plugin the act client loads (wm_orchestrator/env_plugins/<name>.py).
   name: minigrid
 
 orchestrator:
@@ -18,7 +18,7 @@ orchestrator:
   obs_buffer_size: 512
 
 storage:
-  # Where record batches are written: storage/<mode>.py decides the
+  # Where record batches are written: wm_orchestrator/storage/<mode>.py decides the
   # medium (filesystem today; e.g. s3 tomorrow), the batching below is
   # the same for every backend.
   mode: filesystem

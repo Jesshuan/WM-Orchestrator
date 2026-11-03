@@ -25,7 +25,7 @@ from pathlib import Path
 
 import numpy as np
 
-from storage.base import StorageBackend
+from .base import StorageBackend
 
 DAY_STAMP = "%Y%m%d"
 

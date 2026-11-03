@@ -1,11 +1,11 @@
-"""Env plugin registry: env_plugins/<name>.py must define get_plugin()."""
+"""Env plugin registry: wm_orchestrator/env_plugins/<name>.py must define get_plugin()."""
 
 import importlib
 
 
 def load_plugin(name: str):
-    """Import plugins.<name> and return its EnvPlugin instance."""
-    module_name = f"env_plugins.{name}"
+    """Import the env plugin ``name`` and return its EnvPlugin instance."""
+    module_name = f"wm_orchestrator.env_plugins.{name}"
     try:
         module = importlib.import_module(module_name)
     except ImportError as exc:

@@ -7,7 +7,7 @@ from grpc_api import minigrid_api_pb2 as pb2
 from grpc_api import minigrid_api_pb2_grpc as pb2_grpc
 from grpc_api.obs_codec import unpack_obs as _unpack_obs
 
-from env_plugins.base import EnvPlugin, ResetOutcome, StepOutcome
+from .base import EnvPlugin, ResetOutcome, StepOutcome
 
 
 class MinigridPlugin(EnvPlugin):

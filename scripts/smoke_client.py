@@ -1,4 +1,4 @@
-"""Non-interactive smoke test for async_act_client against a live server.
+"""Non-interactive smoke test for wm_orchestrator.client against a live server.
 
 Patches the key reader to feed a scripted sequence:
   'c' -> user takes control, 'w'/' '/'p' -> user steps, 'c' -> agent resumes,
@@ -11,8 +11,12 @@ else (host, env plugin) comes from the yaml defaults.
 import asyncio
 import sys
 import time
+from pathlib import Path
 
-import async_act_client as ac
+# Make the package importable when run in-place, without installing the project.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+import wm_orchestrator.client as ac
 
 scripted = iter(["c", "w", " ", "p", "r", "c"])
 

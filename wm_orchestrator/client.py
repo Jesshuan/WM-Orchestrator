@@ -13,17 +13,17 @@ the manual controls of act_client.py (a/d/w/space/p/o/e, r, q) to the
 user; pressing 'c' again releases control and the agent resumes. Movement
 keys pressed while the agent is in control are simply ignored.
 
-Run from this directory, inside the env that has grpc_api installed:
-    python async_act_client.py [--host HOST] [--port PORT] [--env ENV]
-                               [--config CONFIG]
-    python async_act_client.py --debug
+Run from the project root, inside the env that has grpc_api installed:
+    python scripts/run_client.py [--host HOST] [--port PORT] [--env ENV]
+                                 [--config CONFIG]
+    python scripts/run_client.py --debug
         (--debug prints the full observation payload received per response,
         like grpc_api/act_client.py's debug mode)
 
 The client is env-agnostic: everything env-specific — the transport
 (channel, stub and the Reset/Step requests over the env's own pb2
 protocol), the key mapping, the agent action space, and observation
-unpacking/display — lives in env_plugins/<name>.py, chosen by env.name
+unpacking/display — lives in wm_orchestrator/env_plugins/<name>.py, chosen by env.name
 in config.yaml; --host/--port/--env override the yaml for a single run.
 The core loop below only calls env_plugin.connect/reset/step/close and logs
 plain outcomes, so another env just ships another plugin.
@@ -34,7 +34,7 @@ writes a batch to disk each time record_batch_size records have
 accumulated — and at every episode boundary, so a batch never spans two
 episodes (storage.* keys in config.yaml; filesystem by default, one
 day-stamped folder of .npz batch files). Backends come from
-storage/<mode>.py, the same plugin shape as env_plugins.
+wm_orchestrator/storage/<mode>.py, the same plugin shape as env_plugins.
 """
 
 from __future__ import annotations
@@ -48,14 +48,14 @@ import threading
 from collections import deque
 from enum import Enum, auto
 
-from orchestrator_config import OrchestratorConfig, load_config
-from records import ObsRecord
-from env_plugins import load_plugin
-from env_plugins.base import EnvPlugin
-from storage import load_backend
-from storage.base import StorageBackend
+from wm_orchestrator.config import OrchestratorConfig, load_config
+from wm_orchestrator.records import ObsRecord
+from wm_orchestrator.env_plugins import load_plugin
+from wm_orchestrator.env_plugins.base import EnvPlugin
+from wm_orchestrator.storage import load_backend
+from wm_orchestrator.storage.base import StorageBackend
 
-logger = logging.getLogger("async_act_client")
+logger = logging.getLogger("wm_orchestrator.client")
 
 QUIT_KEYS = ("q", "Q", "\x03", "\x04")  # q, Ctrl-C, Ctrl-D
 
@@ -299,7 +299,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--config",
         type=str,
         default=None,
-        help="orchestrator yaml config (default: config.yaml next to this file)",
+        help="orchestrator yaml config (default: config.yaml at the project root)",
     )
     parser.add_argument(
         "--debug",
